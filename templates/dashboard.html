@@ -1,213 +1,83 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>WinGo Analytics Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src="https://cdn.plot.ly/plotly-2.36.0.min.js"></script>
+  <meta charset="UTF-8" />
+  <title>WinGo Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.1/dist/chartjs-plugin-zoom.min.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      background: #f3f4f6;
-      color: #111827;
-    }
-    h2 {
-      color: #1d4ed8;
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    #controls {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-      margin-bottom: 16px;
-    }
-    #controls h3 {
-      margin: 6px 0;
-      color: #2563eb;
-    }
-    #controls div {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    input.seq {
-      width: 60px;
-      padding: 6px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      text-align: center;
-    }
-    select {
-      padding: 6px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-    }
-    button {
-      padding: 6px 12px;
-      background: #10b981;
-      border: none;
-      border-radius: 6px;
-      color: white;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    button:hover { background: #059669; }
-    #chart {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-      margin-bottom: 12px;
-    }
-    #results {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-      padding: 10px;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-    #results div {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 8px 4px;
-    }
+    body { font-family: sans-serif; margin: 20px; background: #111; color: #eee; }
+    #chart { width: 100%; height: 500px; }
+    input, button { margin: 5px; padding: 5px; font-size: 16px; }
   </style>
 </head>
 <body>
-  <h2>WinGo Analytics Dashboard</h2>
+  <h1>🎯 WinGo Analytics Dashboard</h1>
+  <canvas id="chart"></canvas>
+  <hr />
+  <h3>🔍 Sequence Lookup</h3>
+  <input type="text" id="seq" placeholder="e.g. 5,4,3,2,1" />
+  <button onclick="searchSeq()">Search</button>
+  <p id="result"></p>
 
-  <div id="controls">
-    <h3>Number Sequence Search</h3>
-    <div>
-      <input id="n1" class="seq" maxlength="2" placeholder="1st">
-      <input id="n2" class="seq" maxlength="2" placeholder="2nd">
-      <input id="n3" class="seq" maxlength="2" placeholder="3rd">
-      <input id="n4" class="seq" maxlength="2" placeholder="4th">
-      <button id="btnSearchNum">Search Numbers</button>
-    </div>
+  <script>
+    async function loadRounds() {
+      const res = await fetch('/api/rounds?limit=500');
+      const data = await res.json();
+      const labels = data.map(d => d.issue_number);
+      const nums = data.map(d => d.number);
+      return { labels, nums };
+    }
 
-    <h3>Big / Small Sequence Search</h3>
-    <div>
-      <select id="b1"><option value="">—</option><option>Big</option><option>Small</option></select>
-      <select id="b2"><option value="">—</option><option>Big</option><option>Small</option></select>
-      <select id="b3"><option value="">—</option><option>Big</option><option>Small</option></select>
-      <select id="b4"><option value="">—</option><option>Big</option><option>Small</option></select>
-      <button id="btnSearchBS">Search Big/Small</button>
-    </div>
+    async function drawChart() {
+      const d = await loadRounds();
+      const ctx = document.getElementById('chart').getContext('2d');
+      const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: d.labels,
+          datasets: [{
+            label: 'Winning Number',
+            data: d.nums,
+            borderColor: '#4fc3f7',
+            pointBackgroundColor: '#fff',
+            fill: false,
+            tension: 0,
+            borderWidth: 2
+          }]
+        },
+        options: {
+          scales: {
+            y: { min: 0, max: 9, ticks: { stepSize: 1 } },
+            x: { display: true }
+          },
+          plugins: {
+            zoom: {
+              pan: { enabled: true, mode: 'x' },
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+            }
+          }
+        }
+      });
 
-    <div style="margin-top:10px;">
-      <button id="loadAll">Reload Rounds</button>
-      <button id="btnReset">Reset Zoom</button>
-    </div>
-  </div>
+      // Refresh chart every 30s
+      setInterval(async () => {
+        const d = await loadRounds();
+        chart.data.labels = d.labels;
+        chart.data.datasets[0].data = d.nums;
+        chart.update();
+      }, 30000);
+    }
 
-  <div id="chart" style="width:100%;height:600px;"></div>
+    async function searchSeq() {
+      const val = document.getElementById('seq').value;
+      const res = await fetch(`/api/search_sequence?seq=${val}`);
+      const data = await res.json();
+      document.getElementById('result').innerText =
+        `Found ${data.count} matches for sequence ${data.sequence}`;
+    }
 
-  <div id="results">
-    <i>No results yet.</i>
-  </div>
-
-<script>
-async function loadRounds(limit=1000) {
-  const r = await fetch(`/api/rounds?limit=${limit}`);
-  const data = await r.json();
-  return data;
-}
-
-function buildPlot(data) {
-  const x = data.map(d => Number(d.round_id));
-  const y = data.map(d => d.number);
-  const text = data.map(d => `Round: ${d.round_id}<br>Number: ${d.number}<br>Category: ${d.category}<br>Color: ${d.color}`);
-  const trace = {
-    x, y, type: 'scatter', mode: 'lines+markers',
-    marker: { size: 5, color: '#2563eb' },
-    line: { color: '#3b82f6', width: 1.5 },
-    text, hoverinfo: 'text'
-  };
-  const layout = {
-    xaxis: { title: "Round", rangeslider: {visible: true} },
-    yaxis: { title: "Winning Number" },
-    hovermode: 'closest',
-    margin: {t:30}
-  };
-  Plotly.newPlot('chart', [trace], layout, {responsive:true});
-}
-
-document.getElementById('loadAll').addEventListener('click', async ()=>{
-  const data = await loadRounds(1000);
-  buildPlot(data);
-  document.getElementById('results').innerHTML = `<b>Loaded ${data.length} rounds.</b>`;
-});
-
-document.getElementById('btnReset').addEventListener('click', ()=>{
-  Plotly.relayout('chart', {xaxis:{autorange:true}, yaxis:{autorange:true}});
-});
-
-// --- Sequence Search for Numbers ---
-async function doSearchNumber() {
-  const seq = [n1.value.trim(), n2.value.trim(), n3.value.trim(), n4.value.trim()].filter(x => x !== "");
-  if (seq.length === 0) { alert("Enter at least one number."); return; }
-  const url = `/api/search_sequence?seq=${encodeURIComponent(seq.join(","))}&type=number&after=10`;
-  const r = await fetch(url);
-  const hits = await r.json();
-  renderResults(hits, seq.join(", "), "Numbers");
-}
-
-// --- Sequence Search for Big/Small ---
-async function doSearchBigSmall() {
-  const seq = [b1.value, b2.value, b3.value, b4.value].filter(x => x !== "");
-  if (seq.length === 0) { alert("Select at least one Big/Small."); return; }
-  const url = `/api/search_sequence?seq=${encodeURIComponent(seq.join(","))}&type=category&after=10`;
-  const r = await fetch(url);
-  const hits = await r.json();
-  renderResults(hits, seq.join(", "), "Big/Small");
-}
-
-// --- Render Search Results ---
-function renderResults(hits, label, mode) {
-  const out = document.getElementById("results");
-  if (!hits || hits.length === 0) {
-    out.innerHTML = `<b>No matches found for [${label}] (${mode}).</b>`;
-    return;
-  }
-  out.innerHTML = `<b>${hits.length}</b> matches found for [${label}] (${mode})<hr/>`;
-  hits.forEach((h, i) => {
-    const div = document.createElement("div");
-    div.innerHTML = `<b>${i+1}.</b> Start Round ${h.start_round} — matched: ${h.matched_sequence.join(", ")}<br>Following: ${(h.following||[]).map(f=>f.number||f.number===0?f.number:f.number).join(", ")}`;
-    const btn = document.createElement("button");
-    btn.textContent = "Show Follow-up Chart";
-    btn.onclick = () => showFollowChart(h);
-    div.appendChild(document.createElement("br"));
-    div.appendChild(btn);
-    out.appendChild(div);
-  });
-}
-
-// --- Small chart for follow-up numbers ---
-function showFollowChart(hit) {
-  const follow = hit.following || [];
-  if (follow.length === 0) { alert("No following data."); return; }
-  const x = follow.map(f => Number(f.round_id));
-  const y = follow.map(f => Number(f.number || 0));
-  const trace = {x, y, type:'scatter', mode:'lines+markers', marker:{color:'#f59e0b'}};
-  const layout = {title:`After Round ${hit.start_round}`, xaxis:{title:"Round"}, yaxis:{title:"Number"}};
-  const placeholder = document.createElement("div");
-  placeholder.style.width='100%';
-  placeholder.style.height='300px';
-  placeholder.style.margin='10px 0';
-  document.getElementById('results').appendChild(placeholder);
-  Plotly.newPlot(placeholder, [trace], layout, {responsive:true});
-}
-
-document.getElementById("btnSearchNum").addEventListener("click", doSearchNumber);
-document.getElementById("btnSearchBS").addEventListener("click", doSearchBigSmall);
-
-// --- Initial auto-load ---
-loadRounds(500).then(buildPlot);
-</script>
+    drawChart();
+  </script>
 </body>
 </html>
