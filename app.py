@@ -1,77 +1,47 @@
 from flask import Flask, render_template, jsonify, request
 import sqlite3
-from fetcher import start_background_fetcher
-import os
 
 app = Flask(__name__)
 
 DB_FILE = "wingo.db"
 
-# =========================================================
-# Helper: Database access
-# =========================================================
-def get_db_connection():
+# Fetch all rounds for chart
+def get_all_rounds():
     conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    c = conn.cursor()
+    c.execute("SELECT issue_number, number FROM rounds ORDER BY issue_number ASC")
+    data = c.fetchall()
+    conn.close()
+    rounds = [{"issue": r[0], "number": r[1]} for r in data]
+    return rounds
 
-
-# =========================================================
-# Flask Routes
-# =========================================================
-
-@app.route("/")
+# Homepage
+@app.route('/')
 def index():
-    return render_template("dashboard.html")
+    return render_template('dashboard.html')
 
+# API: all data for chart
+@app.route('/api/rounds')
+def api_rounds():
+    return jsonify(get_all_rounds())
 
-@app.route("/api/rounds")
-def get_rounds():
-    """Return latest N rounds for visualization."""
-    limit = int(request.args.get("limit", 500))
-    conn = get_db_connection()
-    rows = conn.execute(
-        "SELECT issue_number, number, category, timestamp FROM rounds ORDER BY timestamp ASC LIMIT ?",
-        (limit,)
-    ).fetchall()
-    conn.close()
-
-    data = [dict(r) for r in rows]
-    return jsonify(data)
-
-
-@app.route("/api/search_sequence")
+# API: search sequence
+@app.route('/api/search')
 def search_sequence():
-    """Find all occurrences of a number sequence."""
-    seq_str = request.args.get("seq", "")
-    seq = [int(x) for x in seq_str.split(",") if x.strip().isdigit()]
+    seq = request.args.get("seq", "")
     if not seq:
-        return jsonify({"error": "No valid sequence provided."}), 400
-
-    conn = get_db_connection()
-    numbers = [r["number"] for r in conn.execute("SELECT number FROM rounds ORDER BY timestamp ASC").fetchall()]
-    conn.close()
-
+        return jsonify({"error": "No sequence provided"})
+    
+    seq_nums = [int(x) for x in seq.split(",") if x.strip().isdigit()]
+    rounds = get_all_rounds()
     matches = []
-    L = len(seq)
-    for i in range(len(numbers) - L + 1):
-        if numbers[i:i+L] == seq:
-            matches.append({"index": i, "sequence": seq})
 
-    return jsonify({"sequence": seq, "matches": matches, "count": len(matches)})
+    for i in range(len(rounds) - len(seq_nums)):
+        window = [r["number"] for r in rounds[i:i + len(seq_nums)]]
+        if window == seq_nums:
+            matches.append(rounds[i:i + len(seq_nums) + 5])  # 5 rounds after match
+    
+    return jsonify({"matches": matches, "count": len(matches)})
 
-
-# =========================================================
-# Start background data fetcher
-# =========================================================
-
-if not os.environ.get("FETCHER_RUNNING"):
-    os.environ["FETCHER_RUNNING"] = "1"
-    start_background_fetcher()
-    print("[App] Background fetcher started.")
-
-# =========================================================
-# Run Flask (for manual testing)
-# =========================================================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=False)

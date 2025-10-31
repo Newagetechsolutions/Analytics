@@ -1,83 +1,100 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>WinGo Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <meta charset="UTF-8">
+  <title>WinGo Analytics Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
-    body { font-family: sans-serif; margin: 20px; background: #111; color: #eee; }
-    #chart { width: 100%; height: 500px; }
-    input, button { margin: 5px; padding: 5px; font-size: 16px; }
+    body {
+      background: #0d1117;
+      color: #f0f6fc;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h2 { text-align: center; color: #58a6ff; }
+    #chart {
+      width: 100%;
+      height: 80vh;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background-color: #161b22;
+    }
+    .control-box {
+      text-align: center;
+      margin: 10px 0;
+    }
+    input {
+      background-color: #0d1117;
+      border: 1px solid #30363d;
+      color: white;
+      padding: 5px;
+      border-radius: 5px;
+    }
+    button {
+      background-color: #238636;
+      border: none;
+      color: white;
+      padding: 6px 12px;
+      margin-left: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover { background-color: #2ea043; }
   </style>
 </head>
 <body>
-  <h1>🎯 WinGo Analytics Dashboard</h1>
-  <canvas id="chart"></canvas>
-  <hr />
-  <h3>🔍 Sequence Lookup</h3>
-  <input type="text" id="seq" placeholder="e.g. 5,4,3,2,1" />
-  <button onclick="searchSeq()">Search</button>
-  <p id="result"></p>
+  <h2>📈 WinGo Analytics Dashboard</h2>
+  <div id="chart"></div>
+
+  <div class="control-box">
+    <input id="seqInput" placeholder="Enter sequence e.g. 1,2,3">
+    <button onclick="searchSequence()">Search Sequence</button>
+    <span id="matchCount"></span>
+  </div>
 
   <script>
-    async function loadRounds() {
-      const res = await fetch('/api/rounds?limit=500');
+    let chartData = [];
+    let layout = {
+      title: "Live WinGo Rounds (0–9)",
+      xaxis: { title: "Round", showgrid: false },
+      yaxis: { title: "Winning Number", range: [0, 9], dtick: 1, gridcolor: "#30363d" },
+      paper_bgcolor: "#0d1117",
+      plot_bgcolor: "#0d1117",
+      font: { color: "#f0f6fc" }
+    };
+
+    async function loadData() {
+      const res = await fetch("/api/rounds");
       const data = await res.json();
-      const labels = data.map(d => d.issue_number);
-      const nums = data.map(d => d.number);
-      return { labels, nums };
+      const x = data.map(d => d.issue.slice(-6));
+      const y = data.map(d => d.number);
+      chartData = [{ x, y, type: 'scatter', mode: 'lines+markers', name: 'Winning Number', line: { color: '#58a6ff' } }];
+      Plotly.newPlot('chart', chartData, layout);
     }
 
-    async function drawChart() {
-      const d = await loadRounds();
-      const ctx = document.getElementById('chart').getContext('2d');
-      const chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: d.labels,
-          datasets: [{
-            label: 'Winning Number',
-            data: d.nums,
-            borderColor: '#4fc3f7',
-            pointBackgroundColor: '#fff',
-            fill: false,
-            tension: 0,
-            borderWidth: 2
-          }]
-        },
-        options: {
-          scales: {
-            y: { min: 0, max: 9, ticks: { stepSize: 1 } },
-            x: { display: true }
-          },
-          plugins: {
-            zoom: {
-              pan: { enabled: true, mode: 'x' },
-              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
-            }
-          }
-        }
-      });
-
-      // Refresh chart every 30s
-      setInterval(async () => {
-        const d = await loadRounds();
-        chart.data.labels = d.labels;
-        chart.data.datasets[0].data = d.nums;
-        chart.update();
-      }, 30000);
-    }
-
-    async function searchSeq() {
-      const val = document.getElementById('seq').value;
-      const res = await fetch(`/api/search_sequence?seq=${val}`);
+    async function searchSequence() {
+      const seq = document.getElementById("seqInput").value;
+      if (!seq.trim()) return;
+      const res = await fetch(`/api/search?seq=${seq}`);
       const data = await res.json();
-      document.getElementById('result').innerText =
-        `Found ${data.count} matches for sequence ${data.sequence}`;
+      document.getElementById("matchCount").innerText = `${data.count} matches found`;
+
+      if (data.count > 0) {
+        const traces = data.matches.map((m, idx) => ({
+          x: m.map(d => d.issue.slice(-6)),
+          y: m.map(d => d.number),
+          type: 'scatter',
+          mode: 'lines+markers',
+          name: `Match ${idx + 1}`,
+          line: { dash: 'dot', color: '#ff7b72' }
+        }));
+        Plotly.newPlot('chart', [...chartData, ...traces], layout);
+      }
     }
 
-    drawChart();
+    loadData();
+    setInterval(loadData, 60000);  // Refresh every minute
   </script>
 </body>
 </html>
